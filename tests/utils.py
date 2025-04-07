@@ -51,11 +51,11 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
 def inplace_unique(x: torch.Tensor, num_slots: int):
     assert x.dim() == 2
     mask = x < 0
-    x_padded = x.masked_fill(mask, num_slots)
-    bin_count = torch.zeros((x.size(0), num_slots + 1), dtype=x.dtype, device=x.device)
-    bin_count.scatter_add_(1, x_padded, torch.ones_like(x_padded))
-    bin_count = bin_count[:, :num_slots]
-    sorted_bin_count, sorted_bin_idx = torch.sort(bin_count, dim=-1, descending=True)
+    x_padded = x.masked_fill(mask, num_slots) # (num_tokens, topk)
+    bin_count = torch.zeros((x.size(0), num_slots + 1), dtype=x.dtype, device=x.device) # (num_tokens, num_slots + 1)
+    bin_count.scatter_add_(1, x_padded, torch.ones_like(x_padded)) # onehot
+    bin_count = bin_count[:, :num_slots] # (num_tokens, num_slots)
+    sorted_bin_count, sorted_bin_idx = torch.sort(bin_count, dim=-1, descending=True) #
     sorted_bin_idx.masked_fill_(sorted_bin_count == 0, -1)
     sorted_bin_idx = torch.sort(sorted_bin_idx, descending=True, dim=-1).values
     x[:, :].fill_(-1)
@@ -65,10 +65,10 @@ def inplace_unique(x: torch.Tensor, num_slots: int):
 
 def create_grouped_scores(scores: torch.Tensor, group_idx: torch.Tensor, num_groups: int):
     num_tokens, num_experts = scores.shape
-    scores = scores.view(num_tokens, num_groups, -1)
-    mask = torch.zeros((num_tokens, num_groups), dtype=torch.bool, device=scores.device)
-    mask = mask.scatter_(1, group_idx, True).unsqueeze(-1).expand_as(scores)
-    return (scores * mask).view(num_tokens, num_experts)
+    scores = scores.view(num_tokens, num_groups, -1) # (num_tokens, num_groups, num_experts//num_groups)
+    mask = torch.zeros((num_tokens, num_groups), dtype=torch.bool, device=scores.device) # (num_tokens, num_groups)
+    mask = mask.scatter_(1, group_idx, True).unsqueeze(-1).expand_as(scores) # (num_tokens, num_groups, num_experts//num_groups) 只有被topk选中的，才为True
+    return (scores * mask).view(num_tokens, num_experts) # (num_tokens, num_experts)
 
 
 def bench(fn, num_warmups: int = 20, num_tests: int = 30, post_fn=None):

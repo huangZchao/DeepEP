@@ -19,25 +19,25 @@ def test_main(num_sms: int, local_rank: int, num_local_ranks: int, num_ranks: in
         print(f'[config] num_tokens={num_tokens}, hidden={hidden}, num_topk_groups={num_topk_groups}, num_topk={num_topk}', flush=True)
 
     # Random data
-    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device='cuda') * rank
-    x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device='cuda')
-    x_e4m3 = per_token_cast_to_fp8(x)
-    scores = torch.randn((num_tokens, num_experts), dtype=torch.float32, device='cuda').abs() + 1
-    group_scores = scores.view(num_tokens, num_nodes, -1).amax(dim=-1)
-    group_idx = torch.topk(group_scores, k=num_topk_groups, dim=-1, sorted=False).indices
-    masked_scores = create_grouped_scores(scores, group_idx, num_nodes)
-    topk_idx = torch.topk(masked_scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-    topk_weights = torch.ones((num_tokens, num_topk), dtype=torch.float32, device='cuda') * rank
-    topk_weights_pure_rand = torch.randn((num_tokens, num_topk), dtype=torch.float32, device='cuda')
-    rank_idx = topk_idx // (num_experts // num_ranks)
+    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device='cuda') * rank  # (num_tokens, hidden)
+    x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device='cuda') # (num_tokens, hidden)
+    x_e4m3 = per_token_cast_to_fp8(x) # value: (num_tokens, hidden), scale: (num_tokens, hidden//128)
+    scores = torch.randn((num_tokens, num_experts), dtype=torch.float32, device='cuda').abs() + 1 # (num_tokens, num_experts)
+    group_scores = scores.view(num_tokens, num_nodes, -1).amax(dim=-1) # (num_tokens, num_nodes) 每个node的最大score
+    group_idx = torch.topk(group_scores, k=num_topk_groups, dim=-1, sorted=False).indices # (num_tokens, num_topk_groups), group_idx
+    masked_scores = create_grouped_scores(scores, group_idx, num_nodes) # (num_tokens, num_experts)
+    topk_idx = torch.topk(masked_scores, num_topk, dim=-1, largest=True, sorted=False)[1] # (num_tokens, num_topk), expert_idx
+    topk_weights = torch.ones((num_tokens, num_topk), dtype=torch.float32, device='cuda') * rank # (num_tokens, num_topk)
+    topk_weights_pure_rand = torch.randn((num_tokens, num_topk), dtype=torch.float32, device='cuda') # (num_tokens, num_topk)
+    rank_idx = topk_idx // (num_experts // num_ranks) # (num_tokens, num_topk), rank_idx
     rank_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rank_idx, num_ranks)
-    rdma_rank_idx = rank_idx // num_local_ranks
+    rdma_rank_idx = rank_idx // num_local_ranks # (num_tokens, num_topk), 类似node_idx
     rdma_rank_idx.masked_fill_(rank_idx == -1, -1)
     inplace_unique(rdma_rank_idx, num_nodes)
 
     # RDMA dispatch counts
-    rdma_idx = topk_idx // (num_experts // num_nodes)
+    rdma_idx = topk_idx // (num_experts // num_nodes) # (num_tokens, num_topk), 类似node_idx
     rdma_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rdma_idx, num_nodes)
     num_rdma_token_sent = rdma_idx.ne(-1).sum().item()
