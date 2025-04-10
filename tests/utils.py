@@ -55,12 +55,12 @@ def inplace_unique(x: torch.Tensor, num_slots: int):
     bin_count = torch.zeros((x.size(0), num_slots + 1), dtype=x.dtype, device=x.device) # (num_tokens, num_slots + 1)
     bin_count.scatter_add_(1, x_padded, torch.ones_like(x_padded)) # onehot
     bin_count = bin_count[:, :num_slots] # (num_tokens, num_slots)
-    sorted_bin_count, sorted_bin_idx = torch.sort(bin_count, dim=-1, descending=True) #
-    sorted_bin_idx.masked_fill_(sorted_bin_count == 0, -1)
-    sorted_bin_idx = torch.sort(sorted_bin_idx, descending=True, dim=-1).values
+    sorted_bin_count, sorted_bin_idx = torch.sort(bin_count, dim=-1, descending=True) # (num_tokens, num_slots)
+    sorted_bin_idx.masked_fill_(sorted_bin_count == 0, -1) # (num_tokens, num_slots)
+    sorted_bin_idx = torch.sort(sorted_bin_idx, descending=True, dim=-1).values # (num_tokens, num_slots)
     x[:, :].fill_(-1)
     valid_len = min(num_slots, x.size(1))
-    x[:, :valid_len] = sorted_bin_idx[:, :valid_len]
+    x[:, :valid_len] = sorted_bin_idx[:, :valid_len] # (num_tokens, valid_len)
 
 
 def create_grouped_scores(scores: torch.Tensor, group_idx: torch.Tensor, num_groups: int):

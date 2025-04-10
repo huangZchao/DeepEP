@@ -31,28 +31,28 @@ def test_main(num_sms: int, local_rank: int, num_local_ranks: int, num_ranks: in
     topk_weights_pure_rand = torch.randn((num_tokens, num_topk), dtype=torch.float32, device='cuda') # (num_tokens, num_topk)
     rank_idx = topk_idx // (num_experts // num_ranks) # (num_tokens, num_topk), rank_idx
     rank_idx.masked_fill_(topk_idx == -1, -1)
-    inplace_unique(rank_idx, num_ranks)
+    inplace_unique(rank_idx, num_ranks) # (num_tokens, num_topk), 按使用次数排序的rank_idx
     rdma_rank_idx = rank_idx // num_local_ranks # (num_tokens, num_topk), 类似node_idx
     rdma_rank_idx.masked_fill_(rank_idx == -1, -1)
-    inplace_unique(rdma_rank_idx, num_nodes)
+    inplace_unique(rdma_rank_idx, num_nodes) # (num_tokens, num_topk), 按使用次数排序的node_idx
 
     # RDMA dispatch counts
     rdma_idx = topk_idx // (num_experts // num_nodes) # (num_tokens, num_topk), 类似node_idx
     rdma_idx.masked_fill_(topk_idx == -1, -1)
-    inplace_unique(rdma_idx, num_nodes)
-    num_rdma_token_sent = rdma_idx.ne(-1).sum().item()
+    inplace_unique(rdma_idx, num_nodes) # (num_tokens, num_topk), 按使用次数排序的node_idx
+    num_rdma_token_sent = rdma_idx.ne(-1).sum().item() # 发送的总token数
 
     # Expert meta
-    num_tokens_per_expert = torch.zeros((num_experts, ), dtype=torch.int, device='cuda')
+    num_tokens_per_expert = torch.zeros((num_experts, ), dtype=torch.int, device='cuda') # (num_experts, ), 每个expert接纳的token数
     for i in range(num_experts):
         num_tokens_per_expert[i] = (topk_idx == i).sum()
     gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
-    dist.all_reduce(gbl_num_tokens_per_expert, group=group)
+    dist.all_reduce(gbl_num_tokens_per_expert, group=group) # (num_experts, ), 聚合所有rank的每个expert接纳的token数
 
     # Rank layout meta
-    num_tokens_per_rank = torch.empty((num_ranks, ), dtype=torch.int, device='cuda')
-    num_tokens_per_rdma_rank = torch.empty((num_nodes, ), dtype=torch.int, device='cuda')
-    token_idx_in_rank = torch.full((num_ranks, num_tokens), -1, dtype=torch.long, device='cuda')
+    num_tokens_per_rank = torch.empty((num_ranks, ), dtype=torch.int, device='cuda') # (num_ranks, )，每个rank的token数；
+    num_tokens_per_rdma_rank = torch.empty((num_nodes, ), dtype=torch.int, device='cuda') # (num_nodes, )，每个node的token数；
+    token_idx_in_rank = torch.full((num_ranks, num_tokens), -1, dtype=torch.long, device='cuda') # (num_ranks, num_tokens)，每个rank，他的token有哪些
     for i in range(num_ranks):
         num_tokens_per_rank[i] = (rank_idx == i).sum()
         token_sel = (rank_idx == i).max(dim=-1)[0]
