@@ -53,6 +53,9 @@ def test_main(num_sms: int, local_rank: int, num_local_ranks: int, num_ranks: in
     num_tokens_per_rank = torch.empty((num_ranks, ), dtype=torch.int, device='cuda') # (num_ranks, )，每个rank的token数；
     num_tokens_per_rdma_rank = torch.empty((num_nodes, ), dtype=torch.int, device='cuda') # (num_nodes, )，每个node的token数；
     token_idx_in_rank = torch.full((num_ranks, num_tokens), -1, dtype=torch.long, device='cuda') # (num_ranks, num_tokens)，每个rank，他的token有哪些
+    '''
+    计算每个rank需要发送的token数，以及对应的偏移量，以及是否在该node上
+    '''
     for i in range(num_ranks):
         num_tokens_per_rank[i] = (rank_idx == i).sum()
         token_sel = (rank_idx == i).max(dim=-1)[0]
